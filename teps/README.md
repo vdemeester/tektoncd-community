@@ -215,3 +215,4 @@ This is the complete list of Tekton teps:
 |[TEP-0066](0066-dogfooding-tekton.md) | Dogfooding Tekton | proposed | 2021-05-16 |
 |[TEP-0067](0067-tekton-catalog-pipeline-organization.md) | Tekton Catalog Pipeline Organization | implementable | 2021-02-22 |
 |[TEP-0070](0070-tekton-catalog-task-platform-support.md) | Platform support in Tekton catalog | proposed | 2021-06-02 |
+|[TEP-0073](0073-simplify-metrics.md) | Simplify metrics | proposed | 2021-06-23 |
