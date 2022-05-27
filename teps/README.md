@@ -239,4 +239,4 @@ This is the complete list of Tekton teps:
 |[TEP-0096](0096-pipelines-v1-api.md) | Pipelines V1 API | proposed | 2022-02-07 |
 |[TEP-0098](0098-workflows.md) | Workflows | proposed | 2021-12-06 |
 |[TEP-0100](0100-embedded-taskruns-and-runs-status-in-pipelineruns.md) | Embedded TaskRuns and Runs Status in PipelineRuns | implementable | 2022-02-14 |
-|[TEP-0101](0101-decouple-catalog-organization-and-resource-usage.md) | Decouple catalog organization and resource usage | proposed | 2022-03-21 |
+|[TEP-0110](0110-decouple-catalog-organization-and-reference.md) | Decouple Catalog Organization and Resource Reference | implementable | 2022-05-26 |
