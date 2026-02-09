@@ -68,7 +68,9 @@ We altenate between two meeting times, a time that is friendly for Europe + Nort
 | &nbsp;                                                     | Facilitators      | Company | Profile                                     |
 |------------------------------------------------------------|-------------------|---------|---------------------------------------------|
 | <img width="30px" src="https://github.com/afrittoli.png">  | Andrea Frittoli   | IBM     | [afrittoli](https://github.com/afrittoli)   |
+| <img width="30px" src="https://github.com/khrm.png">       | Khurram           | Red Hat | [khrm](https://github.com/khrm)             |
 | <img width="30px" src="https://github.com/vdemeester.png"> | Vincent Demeester | Red Hat | [vdemeester](https://github.com/vdemeester) |
+| <img width="30px" src="https://github.com/waveywaves.png"> | Vibhav Bobade     | Red Hat | [waveywaves](https://github.com/waveywaves) |
 
 ## Governing Board / Community
 
