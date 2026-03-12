@@ -392,6 +392,8 @@ orgs:
         members:
         - zakisk
         - sm43
+        - zakisk
+        - theakshaypant
         privacy: closed
         repos:
           pipelines-as-code: maintain
@@ -738,6 +740,7 @@ orgs:
         - sm43
         - infernus01
         - zakisk
+        - theakshaypant
         privacy: closed
         repos:
           pipelines-as-code: read
