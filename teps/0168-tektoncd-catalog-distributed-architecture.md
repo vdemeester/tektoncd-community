@@ -34,7 +34,6 @@ see-also:
   - [Tooling](#tooling)
     - [Template Repository](#template-repository)
     - [Reusable GitHub Actions](#reusable-github-actions)
-    - [CLI Scaffolding](#cli-scaffolding)
     - [Documentation](#documentation)
   - [Notes and Caveats](#notes-and-caveats)
 - [Design Details](#design-details)
@@ -231,7 +230,7 @@ The sunset follows a **freeze-don't-migrate** approach:
    to this TEP, the template repository, and the Artifact Hub for discovery.
 
 4. **Archive the repository.** Set `tektoncd/catalog` to read-only
-   (GitHub archive). This preserves all existing git-resolver references — pinned `url + revision + pathInRepo` refs continue to work indefinitely.
+   (GitHub archive). This preserves all existing git-resolver references — pinned `url + revision + pathInRepo` refs continue to work indefinitely. Archiving happens only after Phase 2 graduation is complete, ensuring curated resources have a new home before the old repository goes read-only.
 
 5. **Graduate curated resources.** A small set of resources are
    graduated to Tier 1 `tektoncd-catalog/*` repositories (see [Phase 2](#phase-2-graduation-of-curated-resources)).
@@ -433,7 +432,7 @@ Tier 1 releases MUST be signed. The signing mechanism follows TEP-0091 (Trusted 
 - SLSA provenance attestations are generated as part of the release workflow.
 - For GitHub Actions-based CI, cosign keyless signing integrates natively via GitHub's OIDC provider — the release workflow can sign without any secrets.
 
-**Current status:** The signing tooling in `tektoncd/cli` (`tkn task sign`, `tkn stepaction sign`) has known issues and may need fixes or improvements before it can be used reliably in automated release workflows. This TEP does not block on signing being fully operational — catalogs can launch without signatures and add them once the tooling is ready. Signing is a goal, not a gate for initial adoption.
+**Current status:** The signing tooling in `tektoncd/cli` (`tkn task sign`, `tkn stepaction sign`) has known issues and may need fixes or improvements before it can be used reliably in automated release workflows. Catalogs can launch without signatures and add them once the tooling is ready — signing is not a gate for initial Tier 2 adoption. However, signing IS a requirement for Tier 1 graduation: a repository cannot be promoted to Tier 1 until its releases are signed.
 
 ### Artifact Hub Integration
 
@@ -445,6 +444,8 @@ owners:
   - name: tektoncd
     email: tekton-dev@googlegroups.com
 ```
+
+A single repository MAY contain multiple resource types (Tasks, StepActions, Pipelines). Artifact Hub scans the directory structure and registers each resource as a separate package within the same repository — no additional configuration is needed beyond the standard `artifacthub-repo.yml`.
 
 Artifact Hub automatically:
 - Indexes new releases when tags are pushed
@@ -641,4 +642,8 @@ The Tekton project will reach out to active OWNERS of popular resources before t
 - [Helm Ecosystem on Artifact Hub](https://artifacthub.io/packages/search?kind=0) — evidence for decentralized model
 - [tektoncd-catalog GitHub Organization](https://github.com/tektoncd-catalog)
 
-[tep-0003]: ./0003-tekton-catalog-organization.md [tep-0079]: ./0079-tekton-catalog-support-tiers.md [tep-0091]: ./0091-trusted-resources.md [tep-0110]: ./0110-decouple-catalog-organization-and-reference.md [tep-0115]: ./0115-tekton-catalog-git-based-versioning.md
+[tep-0003]: ./0003-tekton-catalog-organization.md
+[tep-0079]: ./0079-tekton-catalog-support-tiers.md
+[tep-0091]: ./0091-trusted-resources.md
+[tep-0110]: ./0110-decouple-catalog-organization-and-reference.md
+[tep-0115]: ./0115-tekton-catalog-git-based-versioning.md
