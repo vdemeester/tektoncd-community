@@ -4,7 +4,7 @@ authors:
   - "@vdemeester"
   - "@savitaashture"
 creation-date: 2026-08-19
-last-updated: 2026-08-19
+last-updated: 2026-10-13
 status: proposed
 see-also:
   - TEP-0085
@@ -39,6 +39,7 @@ see-also:
     - [Inputs are passed as params](#inputs-are-passed-as-params)
   - [Extending ArtifactValue for Status](#extending-artifactvalue-for-status)
     - [Inline threshold bounds](#inline-threshold-bounds)
+    - [Trust boundary and status validation](#trust-boundary-and-status-validation)
   - [Variable Substitution](#variable-substitution)
   - [Entrypoint Behavior](#entrypoint-behavior)
   - [TaskRun Status](#taskrun-status)
@@ -47,6 +48,7 @@ see-also:
   - [PipelineRun Artifact Inputs](#pipelinerun-artifact-inputs)
   - [Transparent Content Fetch and Verification](#transparent-content-fetch-and-verification)
   - [Storage Backend](#storage-backend)
+  - [Artifact Lifecycle](#artifact-lifecycle)
   - [Integration with Tekton Chains](#integration-with-tekton-chains)
   - [Integration with Tekton Results and UIs](#integration-with-tekton-results-and-uis)
 - [Design Evaluation](#design-evaluation)
@@ -221,6 +223,11 @@ declarative API + pluggable storage backends**.
    `emptyDir` and are not mutually distrusting — the Task is the trust unit,
    so per-Step input attribution would add API surface without adding a
    guarantee.
+8. **Tekton-driven deletion of stored artifacts.** Tekton does not delete
+   content it stored — no finalizers, TTLs or retention annotations.
+   Retention is owned by the storage backend (see [Artifact
+   Lifecycle](#artifact-lifecycle)). Tekton-managed deletion, if needed, is
+   left to a follow-up TEP.
 
 ### Use Cases
 
@@ -863,6 +870,37 @@ If content storage is disabled and an artifact exceeds the inline budget,
 there is nowhere to fall back to; the step fails with an error naming the
 artifact and its size.
 
+#### Trust boundary and status validation
+
+`ref`, `size`, `inline` and the computed digest are not part of the
+Task or TaskRun spec, so there is nothing for admission to reject: users
+cannot supply them through the API. They reach the controller through the
+step's termination message, and the controller **trusts the entrypoint's
+report** — the same trust model `results` have today.
+
+The entrypoint writes the termination message only **after** the step's
+process has exited, from the digest it computed itself over the artifact
+path. Tampering with these values therefore requires the step to leave
+behind a detached process that outlives it and rewrites the termination
+message — an exposure that already exists for `results` and is not
+widened by this TEP. What Tekton guarantees is that the recorded digest
+matches the content the entrypoint saw when the step ended; the digest of
+a `reference` artifact remains a claim made by the step.
+
+The reconciler does validate the **shape** of what it receives, and fails
+the TaskRun when the reported values are inconsistent with the Task's
+declarations:
+
+- an artifact declared neither by the Task nor by the Step that reported it;
+- a `reference` artifact carrying `ref` or `inline`, or missing a digest;
+- a `content` artifact with no digest, or with both `ref` and `inline`;
+- `inline` content larger than the configured threshold.
+
+This catches malformed or forged-shape reports, but not values that are
+well-formed and false. Independent re-verification by the controller —
+fetching each stored artifact and re-computing its digest — is possible
+but doubles transfer cost, and is deferred (see [Phase 3](#phase-3-stable)).
+
 ### Variable Substitution
 
 **Output variables (available in Steps):**
@@ -1138,9 +1176,13 @@ spec:
 
 When a Task has content artifact inputs (from Pipeline bindings or
 PipelineRun inputs), the controller transparently fetches and verifies
-the content before any user Steps execute. The fetch image is built and
-released as part of tektoncd/pipeline, following the same pattern as the
-entrypoint, nop, and workingdirinit images.
+the content before any user Steps execute. Fetching is performed by the
+**entrypoint binary** (as a dedicated subcommand) running in a single init
+container that uses the existing entrypoint image. No additional image is
+introduced: the entrypoint image is already pulled for every TaskRun, so
+there is nothing extra to release, sign, mirror for disconnected
+environments, or pull. The init container runs once per TaskRun and writes
+into the volume shared with the Steps; Steps themselves never fetch.
 
 The fetch process:
 - Retrieves content from the storage backend using the storage reference.
@@ -1207,6 +1249,55 @@ backend-agnostic settings include whether content storage is enabled
 are embedded directly in TaskRun status (default: 1KB, ceiling 2KB — see
 [Inline threshold bounds](#inline-threshold-bounds)). Backend-specific
 configuration (repository, credentials) is defined per backend TEP.
+
+### Artifact Lifecycle
+
+**Tekton does not delete stored artifacts.** Retention of content in the
+storage backend is owned by the backend and its operator, through native
+mechanisms (registry retention policies, object-store lifecycle rules, PVC
+lifecycle). `Provider.Delete` exists so that tooling can remove content,
+but nothing in this TEP calls it. Not deleting by default is deliberate:
+content artifacts — not just references — are often worth keeping after a
+run (test reports, SBOMs, build outputs), and keeping by default costs only
+storage, which backend policies already manage. Tekton-driven deletion is a
+[non-goal](#non-goals).
+
+This does not apply to inline artifacts, which live in TaskRun status and
+go away with the TaskRun, nor to `reference` artifacts, which Tekton never
+stored in the first place.
+
+Since the backend owns retention, providers must store artifacts in a way
+that backend-native rules and external tooling can act on:
+
+- **Layout (MUST).** Providers use a configurable, prefix-friendly naming
+  scheme with the **namespace as the leading segment** by default (for
+  example, TEP-0193's `{{namespace}}.{{taskrun}}.{{artifact}}` tag
+  pattern). Native retention rules overwhelmingly filter on names —
+  repository, tag prefix, key prefix — plus age. ECR lifecycle rules, GAR
+  cleanup policies, Harbor retention, Quay auto-pruning, and S3/GCS
+  lifecycle rules all work this way; few of them can match on custom
+  metadata. A predictable, namespace-first layout is therefore what lets
+  an operator write "expire `team-a` artifacts after 30 days" without any
+  Tekton involvement.
+- **Metadata (SHOULD).** Providers record, in whatever native metadata the
+  backend offers (OCI manifest annotations, S3 object tags, …), the
+  namespace, PipelineRun and TaskRun names **and UIDs**, the artifact name,
+  and the creation time. Native rules rarely use this, but custom garbage
+  collectors, Tekton Results, UIs and humans debugging a registry do. UIDs
+  matter because names are reused when runs are deleted and recreated.
+
+**Keeping artifacts longer.** Because the layout is configurable per
+Pipeline or PipelineRun (see TEP-0193 repository overrides), artifacts that
+must outlive normal retention can be routed to a destination with no — or a
+longer — expiry rule. This gives keep-versus-expire control without new
+Tekton API.
+
+**Retention must exceed run duration.** If a backend expires an artifact
+before a downstream TaskRun fetches it, the fetch fails and the TaskRun
+fails with a dedicated reason (`ArtifactNotFound`) naming the artifact and
+its storage reference. Tekton does not retry a fetch of missing content or
+fall back silently. Operators must configure retention longer than their
+longest expected PipelineRun, including retries and approval waits.
 
 ### Integration with Tekton Chains
 
@@ -1357,7 +1448,8 @@ Simpler, validated, integrated.
 |-----------------------------------------|--------------------------------------------------------------------|
 | Storage backend unavailable             | Clear error; retry with backoff; inline fallback for small content |
 | Credential complexity                   | Reuse existing imagePullSecrets; workload identity support         |
-| Orphaned artifacts                      | Backend lifecycle policies (MVP); finalizer cleanup (future)       |
+| Orphaned artifacts                      | Backend-owned retention; namespace-first layout and run metadata ([Artifact Lifecycle](#artifact-lifecycle)) |
+| Artifact expired before consumption     | Fail with `ArtifactNotFound`; document retention > longest run     |
 | Breaking TEP-0147 Phase 1 users         | Alpha feature, flag-gated; migration path documented               |
 | Reference artifact URI format ambiguity | Validate and document expected formats                             |
 
@@ -1455,7 +1547,10 @@ PVC-only.
 
 1. Metrics and observability.
 2. Results integration.
-3. Promote to stable.
+3. Evaluate controller-side re-verification of stored content artifacts
+   (see [Trust boundary and status
+   validation](#trust-boundary-and-status-validation)).
+4. Promote to stable.
 
 ### Test Plan
 
@@ -1476,6 +1571,20 @@ PVC-only.
     affinity assistant introduces when a PVC is shared.
   - Upload cost in the entrypoint as a function of artifact size.
   - Inline mode versus backend upload for small artifacts.
+  - Fan-out: several PipelineTasks binding the same content artifact with
+    `from:` and running in parallel (1, 5 and 20 consumers), each fetching
+    and verifying in its own init container, versus the same consumers
+    reading a shared PVC workspace under the affinity assistant. Measured
+    with and without backend-level caching.
+
+  The benchmark harness and reference results will be published in the
+  documentation as guidance. Because the crossover point depends heavily on
+  the environment (registry locality, network bandwidth, storage class,
+  node count), the guidance describes the trade-offs — where content
+  artifacts cost more (very large artifacts, high fan-out, remote backends)
+  and where they win (no node pinning, no ReadWriteMany, digest
+  verification) — with reference numbers tied to a stated environment,
+  rather than universal size or fan-out thresholds.
 
 ### Upgrade and Migration Strategy
 
