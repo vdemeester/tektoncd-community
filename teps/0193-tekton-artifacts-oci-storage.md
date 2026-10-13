@@ -4,7 +4,7 @@ authors:
   - "@vdemeester"
   - "@savitaashture"
 creation-date: 2026-08-19
-last-updated: 2026-08-19
+last-updated: 2026-10-13
 status: proposed
 see-also:
   - TEP-0085
@@ -368,7 +368,9 @@ and [ORAS conventions](https://oras.land/).
   "annotations": {
     "dev.tekton.artifact/name": "test-results",
     "dev.tekton.artifact/taskrun": "run-tests-abc123",
+    "dev.tekton.artifact/taskrun-uid": "6f1c2b9e-3d4a-4c8e-9b1f-2a7d5e8c0f13",
     "dev.tekton.artifact/pipelinerun": "my-pipeline-run",
+    "dev.tekton.artifact/pipelinerun-uid": "0b9e7d4c-1a2f-4e6b-8c3d-5f7a9e1b2c4d",
     "dev.tekton.artifact/namespace": "default",
     "dev.tekton.artifact/created": "2026-08-19T12:00:00Z"
   }
@@ -613,33 +615,33 @@ oras discover registry.example.com/myapp@sha256:abc123
 
 ### Garbage Collection
 
-Artifact storage cleanup approaches (in order of implementation):
-
-**Phase 1 (MVP): Registry lifecycle policies**
-
-Document that operators should configure registry-native TTL policies:
+Per [TEP-0192 Artifact
+Lifecycle](0192-tekton-artifacts-api.md#artifact-lifecycle), Tekton does
+not delete artifacts from the registry. Retention is owned by the registry
+operator, using registry-native policies:
 - Harbor: tag retention policies
 - GCR/GAR: cleanup policies
 - ECR: lifecycle rules
-- Quay: tag expiration
+- Quay: tag expiration and auto-pruning
 
-**Phase 2: Finalizer-based cleanup**
+This TEP satisfies TEP-0192's provider requirements as follows:
 
-Add a finalizer to TaskRuns with OCI-stored artifacts:
+- **Layout**: the default `oci.tagPattern`
+  (`{{namespace}}.{{taskrun}}.{{artifact}}`) puts the namespace first, so
+  tag-prefix rules can target a namespace. Repository overrides at
+  Pipeline and PipelineRun level route artifacts that must be kept longer
+  to a repository with a different (or no) retention policy.
+- **Metadata**: manifests carry the `dev.tekton.artifact/*` annotations
+  shown in [OCI Artifact Format Specification](#oci-artifact-format-specification), including
+  `dev.tekton.artifact/taskrun-uid` and
+  `dev.tekton.artifact/pipelinerun-uid`.
 
-```yaml
-metadata:
-  finalizers:
-    - artifacts.tekton.dev/oci-cleanup
-```
+When PipelineRun grouping is enabled, deleting the root manifest and its
+referrers removes all artifacts of a PipelineRun in one operation, which
+external cleanup tooling can use.
 
-On TaskRun deletion, the controller deletes the artifact manifest from
-the registry by digest.
-
-**Phase 3: Background garbage collector**
-
-A controller that periodically scans for orphaned artifact manifests
-(referencing deleted TaskRuns) and removes them.
+Tekton-driven deletion (finalizers, background garbage collection) is a
+non-goal of TEP-0192 and left to a follow-up TEP.
 
 ### Konflux CI Compatibility
 
@@ -713,7 +715,7 @@ Tasks that reference it changing shape.
    air-gapped environments.
 
 2. **Registry capacity**: Large artifacts consume registry storage.
-   Mitigated by content-addressable dedup, lifecycle policies, and GC.
+   Mitigated by content-addressable dedup and registry retention policies.
 
 3. **Network dependency**: Artifact fetch adds network latency between
    Tasks. Mitigated by caching, parallel fetch, and inline mode for
@@ -752,7 +754,7 @@ fundamentally a blob store operation.
 6. Auth via ServiceAccount imagePullSecrets.
 7. `config-artifact-storage` ConfigMap handling (cluster + namespace).
 8. Entrypoint integration: push content artifacts after step completion.
-9. Init container (`cmd/artifactfetcher`, released with tektoncd/pipeline): pull + verify for content inputs.
+9. Init container (entrypoint binary subcommand, using the existing entrypoint image): pull + verify for content inputs.
 10. E2E tests with Zot (lightweight OCI registry) in CI.
 11. Documentation: registry requirements, configuration guide.
 
@@ -763,15 +765,13 @@ fundamentally a blob store operation.
 3. PipelineRun grouping via OCI Index.
 4. `oci.credentialsSecret` support.
 5. Cross-mount for referrer attachment.
-6. Finalizer-based garbage collection.
-7. Konflux CI interoperability validation.
+6. Konflux CI interoperability validation.
 
 ### Phase 3 (Stable)
 
-1. Background garbage collector.
-2. Metrics: upload/download latency, storage usage, cache hit rate.
-3. Registry mirror / pull-through cache documentation.
-4. Promote to stable.
+1. Metrics: upload/download latency, storage usage, cache hit rate.
+2. Registry mirror / pull-through cache documentation.
+3. Promote to stable.
 
 ### Test Plan
 
